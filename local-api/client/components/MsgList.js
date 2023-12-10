@@ -1,68 +1,76 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { useRouter } from 'next/router';
+import useInfiniteScroll from '../hooks/useInfiniteScroll';
+import fetcher from '../fetcher';
 import MsgItem from './MsgItem';
 import MsgInput from './MsgInput';
 
-const UserIds = ['roy', 'jay'];
-const getRandomUserId = () => UserIds[Math.round(Math.random())];
-
-const originalMsgs = Array(50)
-  .fill(0)
-  .map((_, i) => ({
-    id: i + 1,
-    userId: getRandomUserId(),
-    timestamp: 1234567890123 + (50 - i) * 1000 * 60,
-    text: `${50 - i} mock text`,
-  }));
-
-const MsgList = () => {
-  const [msgs, setMsgs] = useState(originalMsgs);
+const MsgList = ({ smsgs, users }) => {
+  const [msgs, setMsgs] = useState(smsgs);
   const [editingId, setEditingId] = useState(null);
+  const [hasNext, setHasNext] = useState(true);
 
-  const onMsgCreate = (text) => {
-    setMsgs((prev) => [
-      {
-        id: prev.length + 1,
-        userId: getRandomUserId(),
-        timestamp: Date.now(),
-        text: `${prev.length + 1} ${text}`,
+  const fetchMoreEl = useRef(null);
+  const { query } = useRouter();
+
+  const userId = query.userId || query.userid || '';
+  const intersecting = useInfiniteScroll(fetchMoreEl);
+
+  const onMsgCreate = async (text) => {
+    const newMsg = await fetcher('post', '/messages', { text, userId });
+
+    if (newMsg) setMsgs((msgs) => [newMsg, ...msgs]);
+  };
+
+  const onMsgUpdate = async (text, id) => {
+    const msg = await fetcher('put', `/messages/${id}`, { text, userId });
+
+    if (msg) {
+      setMsgs((prev) => prev.map((item) => (item.id === id ? msg : item)));
+      setEditingId(null);
+    }
+  };
+
+  const onDelete = async (id) => {
+    const receivedId = await fetcher('delete', `/messages/${id}`, {
+      params: { userId },
+    });
+    setMsgs((msgs) => msgs.filter((msg) => msg.id !== `${receivedId}`));
+  };
+
+  const getMessages = async () => {
+    const newMsgs = await fetcher('get', '/messages', {
+      params: {
+        cursor: msgs[msgs.length - 1]?.id || '',
       },
-      ...prev,
-    ]);
+    });
+
+    if (newMsgs.length === 0) setHasNext(false);
+    else setMsgs((msgs) => [...msgs, ...newMsgs]);
   };
 
-  const onMsgUpdate = (text, id) => {
-    setMsgs((prev) =>
-      prev.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              text,
-            }
-          : item
-      )
-    );
-    setEditingId(null);
-  };
-
-  const onDelete = (id) => {
-    setMsgs((prev) => prev.filter((item) => item.id !== id));
-  };
+  useEffect(() => {
+    if (intersecting && hasNext) getMessages();
+  }, [intersecting]);
 
   return (
     <>
-      <MsgInput mutate={onMsgCreate} />
+      <MsgInput mutate={onMsgCreate} userId={userId} />
       <ul className="messages">
         {msgs.map((x) => (
           <MsgItem
             key={x.id}
             {...x}
             isEditing={x.id === editingId}
+            myId={userId}
+            user={users[x.userId]}
             onUpdate={onMsgUpdate}
             onDelete={() => onDelete(x.id)}
             startEdit={() => setEditingId(x.id)}
           />
         ))}
       </ul>
+      <div ref={fetchMoreEl} />
     </>
   );
 };
