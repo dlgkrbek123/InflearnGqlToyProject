@@ -1,0 +1,24 @@
+query Messages {
+  messages{
+    text
+    id
+    userId 
+  }
+}
+
+
+query Message($id: ID!) {
+  message(id:$id){
+    text
+    id
+    userId
+    timestamp
+  }
+}
+
+mutation Message($text: String! , $userId:ID!) {
+  createMessage(text:$text, userId: $userId) {
+    id
+    text
+  }
+}
